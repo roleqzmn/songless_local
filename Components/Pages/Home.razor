@@ -1,0 +1,605 @@
+@page "/"
+@implements IAsyncDisposable
+@inject SpotifyAuthService SpotifyAuth
+@inject SpotifyApiClient SpotifyApi
+@inject GameEngine GameRules
+@inject GameHistoryStore HistoryStore
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<Home> Logger
+
+<PageTitle>Na ucho — zgadnij utwór</PageTitle>
+
+<div class="app-shell">
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="Na ucho — strona główna">
+            <span class="brand-icon">♫</span>
+            <span>na<span class="brand-accent"> ucho</span></span>
+        </a>
+
+        <div class="topbar-actions">
+            @if (SpotifyAuth.IsConnected)
+            {
+                <span class="connection-status"><span class="status-dot"></span>SPOTIFY POŁĄCZONE</span>
+                @if (_tracks.Count > 0)
+                {
+                    <span class="library-count">@_tracks.Count UTW.</span>
+                }
+                <button class="text-button" type="button" @onclick="ReloadTracksAsync" disabled="@_isLoading">
+                    Odśwież
+                </button>
+                <a class="text-button" href="/auth/logout">Odłącz</a>
+            }
+            else
+            {
+                <span class="connection-status muted"><span class="status-dot"></span>GRA SOLO</span>
+            }
+        </div>
+    </header>
+
+    <main class="main-content">
+        @if (!SpotifyAuth.IsConnected)
+        {
+            <section class="welcome-card connect-card">
+                <div class="eyebrow"><span class="eyebrow-line"></span>MUZYKA, KTÓRĄ JUŻ ZNASZ</div>
+                <h1>Twoje hity.<br />Twoja <span>zgadywanka.</span></h1>
+                <p class="lead">
+                    Rozpoznaj swoje polubione kawałki po krótkim fragmencie.
+                    Im szybciej zgadniesz, tym więcej punktów zgarniesz.
+                </p>
+                <a class="primary-button spotify-button" href="/auth/login">
+                    <span class="spotify-mark">●</span>
+                    Połącz Spotify
+                    <span class="button-arrow">↗</span>
+                </a>
+                <p class="fine-print">Logowanie Spotify · token jest przechowywany tylko w pamięci aplikacji</p>
+
+                <div class="feature-row">
+                    <div class="feature-item">
+                        <span class="feature-number">01</span>
+                        <span>5 utworów<br />w dziennym wyzwaniu</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-number">02</span>
+                        <span>6 prób<br />na każdy kawałek</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-number">03</span>
+                        <span>Twoja biblioteka<br />polubionych utworów</span>
+                    </div>
+                </div>
+            </section>
+        }
+        else if (_isLoading && _tracks.Count == 0)
+        {
+            <section class="welcome-card loading-card">
+                <div class="loading-spinner"></div>
+                <p class="eyebrow">ŁĄCZENIE Z TWOJĄ BIBLIOTEKĄ</p>
+                <h1>Ładuję<br /><span>polubione utwory...</span></h1>
+            </section>
+        }
+        else if (_run is null)
+        {
+            <section class="welcome-card game-home">
+                <div class="home-copy">
+                    <div class="eyebrow"><span class="eyebrow-line"></span>TWOJA BIBLIOTEKA SPOTIFY</div>
+                    <h1>Poznasz je<br />po <span>jednej nutce?</span></h1>
+                    <p class="lead">
+                        Zgadnij tytuł zanim skończy się fragment.
+                        Każda kolejna próba odsłania więcej muzyki.
+                    </p>
+
+                    <div class="game-actions">
+                        <button class="primary-button" type="button" @onclick="StartDailyGame" disabled="@(_tracks.Count < GameEngine.SongsPerGame)">
+                            Zagraj dzisiejsze 5 <span class="button-arrow">→</span>
+                        </button>
+                        <button class="secondary-button" type="button" @onclick="StartPracticeGame" disabled="@(_tracks.Count < GameEngine.SongsPerGame)">
+                            Trening bez limitu
+                        </button>
+                    </div>
+                    <p class="fine-print">
+                        @_tracks.Count utworów w puli
+                        @if (_tracks.Count < GameEngine.SongsPerGame)
+                        {
+                            <span> · potrzeba minimum @GameEngine.SongsPerGame</span>
+                        }
+                    </p>
+                </div>
+
+                <div class="stats-card">
+                    <div class="stats-heading">TWÓJ WYNIK</div>
+                    <div class="stats-grid">
+                        <div class="stat">
+                            <strong>@_statistics.CurrentStreak</strong>
+                            <span>dni serii</span>
+                        </div>
+                        <div class="stat">
+                            <strong>@_statistics.BestScore.ToString("N0")</strong>
+                            <span>najlepszy wynik</span>
+                        </div>
+                    </div>
+                    <div class="stats-divider"></div>
+                    <div class="last-score">
+                        <span>OSTATNI DZIENNY WYNIK</span>
+                        <strong>@(_statistics.LastScore?.ToString("N0") ?? "—")</strong>
+                    </div>
+                    <div class="stats-decoration" aria-hidden="true">♫</div>
+                </div>
+            </section>
+        }
+        else if (_run.IsComplete)
+        {
+            <section class="results-card">
+                <div class="eyebrow"><span class="eyebrow-line"></span>@(_run.IsDaily ? "WYZWANIE UKOŃCZONE" : "TRENING UKOŃCZONY")</div>
+                <h1>Dobra robota<span>.</span></h1>
+                <p class="lead">Wynik za @_run.Songs.Count utworów</p>
+                <div class="final-score">@_run.TotalScore.ToString("N0")<span> / @(_run.Songs.Count * 1_000).ToString("N0")</span></div>
+                <div class="result-track-list">
+                    @for (var index = 0; index < _run.Songs.Count; index++)
+                    {
+                        var result = _run.RoundResults[index];
+                        <div class="result-track">
+                            <span class="result-index">@((index + 1).ToString("00"))</span>
+                            <div class="result-name">
+                                <strong>@result.Track.Name</strong>
+                                <span>@result.Track.ArtistLine</span>
+                            </div>
+                            <span class="result-points">@result.Score.ToString("N0")</span>
+                        </div>
+                    }
+                </div>
+                <button class="primary-button" type="button" @onclick="ReturnHome">
+                    Wróć do menu <span class="button-arrow">→</span>
+                </button>
+            </section>
+        }
+        else
+        {
+            var currentTrack = _run.Songs[_run.RoundIndex];
+
+            <section class="game-view">
+                <div class="game-topline">
+                    <button class="back-button" type="button" @onclick="ExitGameAsync">← <span>Menu</span></button>
+                    <span class="mode-label">@(_run.IsDaily ? "WYZWANIE DNIA" : "TRYB TRENINGU")</span>
+                    <div class="round-progress" aria-label="Postęp gry">
+                        @for (var index = 0; index < _run.Songs.Count; index++)
+                        {
+                            <span class="round-dot @(index < _run.RoundIndex ? "complete" : index == _run.RoundIndex ? "active" : string.Empty)"></span>
+                        }
+                    </div>
+                </div>
+
+                <div class="game-title">
+                    <div class="eyebrow"><span class="eyebrow-line"></span>UTWÓR @((_run.RoundIndex + 1).ToString("00"))</div>
+                    <h1>Co to za <span>numer?</span></h1>
+                    <p>Odsłuchaj fragment i wpisz tytuł. Wykonawcę możesz dopisać, żeby odróżnić podobne tytuły.</p>
+                </div>
+
+                <div class="game-grid">
+                    <section class="audio-card">
+                        <div class="audio-card-top">
+                            <span class="audio-card-label">FRAGMENT UTWORU</span>
+                            <span class="clip-length">@(GameRules.GetRevealDurationMilliseconds(_run.AttemptsUsed) / 1_000) S</span>
+                        </div>
+                        <div class="record-art" aria-hidden="true">
+                            <div class="record-grooves"></div>
+                            <div class="record-center">♫</div>
+                        </div>
+                        <div class="waveform @(_isPlaying ? "playing" : string.Empty)" aria-hidden="true">
+                            @foreach (var height in WaveformHeights)
+                            {
+                                <span style="--bar-height: @height%"></span>
+                            }
+                        </div>
+                        <button class="listen-button" type="button" @onclick="PlaySnippetAsync" disabled="@_isPlaying">
+                            <span class="listen-icon">@(_isPlaying ? "Ⅱ" : "▶")</span>
+                            @(_isPlaying ? "ODTWARZAM..." : "ODTWÓRZ FRAGMENT")
+                        </button>
+                        <p class="audio-note">Fragment zaczyna się od początku utworu</p>
+                    </section>
+
+                    <section class="guess-card">
+                        <div class="attempt-header">
+                            <span>PRÓBA @(_run.AttemptsUsed + 1) / @GameEngine.MaximumAttempts</span>
+                            <div class="attempt-dots" aria-label="Pozostałe próby">
+                                @for (var attempt = 0; attempt < GameEngine.MaximumAttempts; attempt++)
+                                {
+                                    <span class="attempt-dot @(attempt < _run.AttemptsUsed ? "used" : attempt == _run.AttemptsUsed ? "current" : string.Empty)"></span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (!_run.RoundSolved && !_run.RoundFailed)
+                        {
+                            <label class="guess-label" for="guess">WPISZ TYTUŁ UTWORU</label>
+                            <input id="guess"
+                                   class="guess-input"
+                                   value="@_guess"
+                                   @oninput="OnGuessInput"
+                                   @onkeydown="OnGuessKeyDown"
+                                   maxlength="180"
+                                   autocomplete="off"
+                                   placeholder="Np. tytuł piosenki..." />
+                            <button class="submit-button" type="button" @onclick="SubmitGuess">
+                                Zgaduję <span>↗</span>
+                            </button>
+                            <button class="skip-button" type="button" @onclick="SkipAttempt">
+                                Nie wiem, pokaż więcej
+                            </button>
+                            @if (!string.IsNullOrWhiteSpace(_run.Feedback))
+                            {
+                                <p class="guess-feedback">@_run.Feedback</p>
+                            }
+                        }
+                        else
+                        {
+                            <div class="answer-reveal @(_run.RoundSolved ? "solved" : "missed")">
+                                <span class="answer-kicker">@(_run.RoundSolved ? "DOBRZE ZGADNIĘTE" : "TYTUŁ UTWORU")</span>
+                                <strong>@currentTrack.Name</strong>
+                                <span class="answer-artist">@currentTrack.ArtistLine</span>
+                                <div class="earned-points">
+                                    <span>ZDOBYTE PUNKTY</span>
+                                    <strong>@_run.CurrentRoundScore.ToString("N0")</strong>
+                                </div>
+                                <button class="submit-button next-button" type="button" @onclick="AdvanceRoundAsync">
+                                    @(_run.RoundIndex == _run.Songs.Count - 1 ? "Zobacz wynik" : "Następny utwór")
+                                    <span>→</span>
+                                </button>
+                            </div>
+                        }
+                    </section>
+                </div>
+
+                <div class="game-score">
+                    <span>WYNIK</span>
+                    <strong>@_run.TotalScore.ToString("N0")</strong>
+                </div>
+            </section>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="error-message" role="alert">
+                <span>@_error</span>
+                @if (!SpotifyAuth.IsConnected)
+                {
+                    <a href="/auth/login">Połącz ponownie</a>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_statisticsWarning))
+        {
+            <div class="warning-message" role="status">@_statisticsWarning</div>
+        }
+    </main>
+
+    <footer class="footer">
+        <span>NA UCHO <span class="footer-dot">·</span> TWOJA MUZYKA, TWOJA PAMIĘĆ</span>
+        <span>GRANE LOKALNIE</span>
+    </footer>
+</div>
+
+@code {
+    private static readonly int[] WaveformHeights =
+    [
+        28, 45, 34, 62, 40, 76, 49, 91, 57, 38, 68, 96, 54, 74, 43, 88,
+        61, 37, 79, 52, 98, 46, 67, 35, 83, 57, 72, 42, 94, 60, 34, 77,
+        49, 86, 56, 31, 70, 44, 92, 58, 36, 75, 48, 64, 40, 87, 53, 32
+    ];
+
+    private readonly List<SpotifyTrack> _tracks = [];
+    private GameRun? _run;
+    private GameStatistics _statistics = new(0, 0, null);
+    private IJSObjectReference? _spotifyPlayerModule;
+    private string _guess = string.Empty;
+    private string? _error;
+    private string? _statisticsWarning;
+    private bool _isLoading;
+    private bool _isPlaying;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var query = QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+        if (query.TryGetValue("spotifyError", out var authError))
+        {
+            _error = authError.ToString();
+        }
+
+        await LoadStatisticsAsync();
+
+        if (SpotifyAuth.IsConnected)
+        {
+            await ReloadTracksAsync(clearError: false);
+        }
+    }
+
+    private async Task LoadStatisticsAsync()
+    {
+        try
+        {
+            _statistics = await HistoryStore.GetStatisticsAsync(DateOnly.FromDateTime(DateTime.Today));
+        }
+        catch (IOException exception)
+        {
+            Logger.LogError(exception, "Could not read local game history.");
+            _statisticsWarning = "Nie udało się odczytać lokalnej historii wyników.";
+        }
+        catch (System.Text.Json.JsonException exception)
+        {
+            Logger.LogError(exception, "Local game history is invalid.");
+            _statisticsWarning = "Plik historii wyników jest uszkodzony.";
+        }
+    }
+
+    private async Task ReloadTracksAsync() => await ReloadTracksAsync(clearError: true);
+
+    private async Task ReloadTracksAsync(bool clearError)
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _isLoading = true;
+        if (clearError)
+        {
+            _error = null;
+        }
+
+        try
+        {
+            var savedTracks = await SpotifyApi.GetSavedTracksAsync();
+            _tracks.Clear();
+            _tracks.AddRange(savedTracks);
+        }
+        catch (SpotifyApiException exception)
+        {
+            Logger.LogWarning(exception, "Could not load the Spotify liked-tracks library.");
+            _error = exception.Message;
+        }
+        catch (HttpRequestException exception)
+        {
+            Logger.LogWarning(exception, "Request to Spotify failed.");
+            _error = "Nie udało się połączyć ze Spotify. Sprawdź internet i spróbuj ponownie.";
+        }
+        catch (InvalidOperationException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void StartDailyGame() => StartGame(isDaily: true);
+
+    private void StartPracticeGame() => StartGame(isDaily: false);
+
+    private void StartGame(bool isDaily)
+    {
+        _error = null;
+        _statisticsWarning = null;
+
+        try
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var songs = isDaily
+                ? GameRules.CreateDailySet(_tracks, today)
+                : GameRules.CreatePracticeSet(_tracks);
+
+            _run = new GameRun(songs, isDaily, today);
+            _guess = string.Empty;
+        }
+        catch (InvalidOperationException exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task PlaySnippetAsync()
+    {
+        if (_run is null || _run.IsComplete || _run.RoundSolved || _run.RoundFailed || _isPlaying)
+        {
+            return;
+        }
+
+        var currentTrack = _run.Songs[_run.RoundIndex];
+        var duration = GameRules.GetRevealDurationMilliseconds(_run.AttemptsUsed);
+        _error = null;
+        _isPlaying = true;
+
+        try
+        {
+            _spotifyPlayerModule ??= await JS.InvokeAsync<IJSObjectReference>(
+                "import",
+                "./js/spotify-player.js");
+            await _spotifyPlayerModule.InvokeVoidAsync("playSnippet", currentTrack.Uri, duration);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Spotify playback snippet failed.");
+            _error = exception.Message;
+        }
+        finally
+        {
+            _isPlaying = false;
+        }
+    }
+
+    private void OnGuessInput(ChangeEventArgs args)
+    {
+        _guess = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnGuessKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            SubmitGuess();
+        }
+    }
+
+    private void SubmitGuess()
+    {
+        if (_run is null || _run.IsComplete || _run.RoundSolved || _run.RoundFailed)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_guess))
+        {
+            _run.Feedback = "Wpisz tytuł albo pomiń próbę.";
+            return;
+        }
+
+        var currentTrack = _run.Songs[_run.RoundIndex];
+        if (GameRules.IsCorrectGuess(_guess, currentTrack))
+        {
+            _run.RoundSolved = true;
+            _run.CurrentRoundScore = GameRules.GetScoreForAttempt(_run.AttemptsUsed);
+            _run.TotalScore += _run.CurrentRoundScore;
+            _run.Feedback = null;
+            _run.RoundResults.Add(new GameRoundResult(currentTrack, _run.CurrentRoundScore));
+        }
+        else
+        {
+            _run.AttemptsUsed++;
+            _run.Feedback = _run.AttemptsUsed >= GameEngine.MaximumAttempts
+                ? null
+                : "Nie tym razem. Odsłuchaj dłuższy fragment i spróbuj ponownie.";
+
+            if (_run.AttemptsUsed >= GameEngine.MaximumAttempts)
+            {
+                _run.RoundFailed = true;
+                _run.CurrentRoundScore = 0;
+                _run.RoundResults.Add(new GameRoundResult(currentTrack, 0));
+            }
+        }
+
+        _guess = string.Empty;
+    }
+
+    private void SkipAttempt()
+    {
+        if (_run is null || _run.IsComplete || _run.RoundSolved || _run.RoundFailed)
+        {
+            return;
+        }
+
+        _run.AttemptsUsed++;
+        if (_run.AttemptsUsed >= GameEngine.MaximumAttempts)
+        {
+            _run.RoundFailed = true;
+            _run.CurrentRoundScore = 0;
+            _run.RoundResults.Add(new GameRoundResult(_run.Songs[_run.RoundIndex], 0));
+            _run.Feedback = null;
+        }
+        else
+        {
+            _run.Feedback = "Fragment wydłużony. Spróbuj jeszcze raz.";
+        }
+    }
+
+    private async Task AdvanceRoundAsync()
+    {
+        if (_run is null || !_run.RoundSolved && !_run.RoundFailed)
+        {
+            return;
+        }
+
+        _run.RoundIndex++;
+        _run.AttemptsUsed = 0;
+        _run.CurrentRoundScore = 0;
+        _run.RoundSolved = false;
+        _run.RoundFailed = false;
+        _run.Feedback = null;
+        _guess = string.Empty;
+
+        if (_run.IsComplete && _run.IsDaily)
+        {
+            try
+            {
+                await HistoryStore.RecordDailyResultAsync(
+                    _run.Date,
+                    _run.TotalScore,
+                    _run.Songs.Count * 1_000);
+                _statistics = await HistoryStore.GetStatisticsAsync(DateOnly.FromDateTime(DateTime.Today));
+            }
+            catch (IOException exception)
+            {
+                Logger.LogError(exception, "Could not save the daily game result.");
+                _statisticsWarning = "Gra ukończona, ale zapisanie wyniku na dysku się nie powiodło.";
+            }
+            catch (System.Text.Json.JsonException exception)
+            {
+                Logger.LogError(exception, "Local game history is invalid.");
+                _statisticsWarning = "Gra ukończona, ale plik historii wyników jest uszkodzony.";
+            }
+        }
+    }
+
+    private async Task ExitGameAsync()
+    {
+        if (_spotifyPlayerModule is not null)
+        {
+            await _spotifyPlayerModule.InvokeVoidAsync("pause");
+        }
+
+        _run = null;
+        _guess = string.Empty;
+    }
+
+    private void ReturnHome()
+    {
+        _run = null;
+        _guess = string.Empty;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_spotifyPlayerModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _spotifyPlayerModule.InvokeVoidAsync("disconnect");
+            await _spotifyPlayerModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private sealed class GameRun(IReadOnlyList<SpotifyTrack> songs, bool isDaily, DateOnly date)
+    {
+        public IReadOnlyList<SpotifyTrack> Songs { get; } = songs;
+
+        public List<GameRoundResult> RoundResults { get; } = [];
+
+        public bool IsDaily { get; } = isDaily;
+
+        public DateOnly Date { get; } = date;
+
+        public int RoundIndex { get; set; }
+
+        public int AttemptsUsed { get; set; }
+
+        public int TotalScore { get; set; }
+
+        public int CurrentRoundScore { get; set; }
+
+        public bool RoundSolved { get; set; }
+
+        public bool RoundFailed { get; set; }
+
+        public string? Feedback { get; set; }
+
+        public bool IsComplete => RoundIndex >= Songs.Count;
+    }
+
+    private sealed record GameRoundResult(SpotifyTrack Track, int Score);
+}

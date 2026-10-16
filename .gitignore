@@ -1,0 +1,16 @@
+# .NET build output
+bin/
+obj/
+artifacts/
+TestResults/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Publish profiles can contain local deployment settings
+*.publishsettings
+*.pubxml
