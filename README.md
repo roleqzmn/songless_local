@@ -16,4 +16,4 @@ Odtwarzanie w Web Playback SDK wymaga Spotify Premium. Aplikacja binduje się lo
 
 ## Zasady gry
 
-Każda runda daje 7 prób. Kolejne odsłuchiwane fragmenty trwają: 0,1 s, 0,5 s, 1 s, 2 s, 4 s, 8 s i 16 s. Błędna odpowiedź lub pominięcie odsłania następny fragment. Podpowiedzi wyszukują polubione utwory po tytule i wykonawcy, a okładka albumu pojawia się po ujawnieniu odpowiedzi.
+Każda runda daje 7 prób. Kolejne odsłuchiwane fragmenty trwają: 0,1 s, 0,5 s, 1 s, 2 s, 4 s, 8 s i 16 s. Błędna odpowiedź lub pominięcie odsłania następny fragment. Podpowiedzi wyszukują polubione utwory po tytule i wykonawcy.
