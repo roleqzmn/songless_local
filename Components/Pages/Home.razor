@@ -1,4 +1,5 @@
 @page "/"
+@using System.Globalization
 @implements IAsyncDisposable
 @inject SpotifyAuthService SpotifyAuth
 @inject SpotifyApiClient SpotifyApi
@@ -61,7 +62,7 @@
                     </div>
                     <div class="feature-item">
                         <span class="feature-number">02</span>
-                        <span>6 prób<br />na każdy kawałek</span>
+                        <span>7 prób<br />na każdy kawałek</span>
                     </div>
                     <div class="feature-item">
                         <span class="feature-number">03</span>
@@ -140,6 +141,17 @@
                         var result = _run.RoundResults[index];
                         <div class="result-track">
                             <span class="result-index">@((index + 1).ToString("00"))</span>
+                            @if (!string.IsNullOrWhiteSpace(result.Track.ImageUrl))
+                            {
+                                <img class="result-art"
+                                     src="@result.Track.ImageUrl"
+                                     alt="Okładka albumu: @(result.Track.AlbumName ?? result.Track.Name)"
+                                     loading="lazy" />
+                            }
+                            else
+                            {
+                                <span class="result-art-placeholder" aria-hidden="true">♫</span>
+                            }
                             <div class="result-name">
                                 <strong>@result.Track.Name</strong>
                                 <span>@result.Track.ArtistLine</span>
@@ -179,7 +191,7 @@
                     <section class="audio-card">
                         <div class="audio-card-top">
                             <span class="audio-card-label">FRAGMENT UTWORU</span>
-                            <span class="clip-length">@(GameRules.GetRevealDurationMilliseconds(_run.AttemptsUsed) / 1_000) S</span>
+                            <span class="clip-length">@((GameRules.GetRevealDurationMilliseconds(_run.AttemptsUsed) / 1_000d).ToString("0.#", CultureInfo.InvariantCulture)) S</span>
                         </div>
                         <div class="record-art" aria-hidden="true">
                             <div class="record-grooves"></div>
@@ -211,15 +223,44 @@
 
                         @if (!_run.RoundSolved && !_run.RoundFailed)
                         {
-                            <label class="guess-label" for="guess">WPISZ TYTUŁ UTWORU</label>
-                            <input id="guess"
-                                   class="guess-input"
-                                   value="@_guess"
-                                   @oninput="OnGuessInput"
-                                   @onkeydown="OnGuessKeyDown"
-                                   maxlength="180"
-                                   autocomplete="off"
-                                   placeholder="Np. tytuł piosenki..." />
+                            <label class="guess-label" for="guess">WPISZ TYTUŁ LUB WYKONAWCĘ</label>
+                            <div class="guess-entry">
+                                <input id="guess"
+                                       class="guess-input"
+                                       value="@_guess"
+                                       @oninput="OnGuessInput"
+                                       @onkeydown="OnGuessKeyDown"
+                                       maxlength="180"
+                                       autocomplete="off"
+                                       role="combobox"
+                                       aria-autocomplete="list"
+                                       aria-expanded="@(_suggestions.Count > 0)"
+                                       aria-controls="guess-suggestions"
+                                       aria-activedescendant="@GetActiveSuggestionId()"
+                                       placeholder="Wpisz tytuł lub wykonawcę..." />
+                                @if (_suggestions.Count > 0)
+                                {
+                                    <div id="guess-suggestions" class="suggestion-list" role="listbox" aria-label="Pasujące utwory">
+                                        @for (var index = 0; index < _suggestions.Count; index++)
+                                        {
+                                            var suggestion = _suggestions[index];
+                                            <button id="@GetSuggestionId(index)"
+                                                    class="suggestion-option @(index == _activeSuggestionIndex ? "active" : string.Empty)"
+                                                    type="button"
+                                                    role="option"
+                                                    aria-selected="@(index == _activeSuggestionIndex)"
+                                                    @onmousedown:preventDefault="true"
+                                                    @onclick="() => SelectSuggestion(suggestion)">
+                                                <span class="suggestion-symbol" aria-hidden="true">♫</span>
+                                                <span class="suggestion-copy">
+                                                    <strong>@suggestion.Name</strong>
+                                                    <span>@suggestion.ArtistLine</span>
+                                                </span>
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
                             <button class="submit-button" type="button" @onclick="SubmitGuess">
                                 Zgaduję <span>↗</span>
                             </button>
@@ -234,9 +275,24 @@
                         else
                         {
                             <div class="answer-reveal @(_run.RoundSolved ? "solved" : "missed")">
-                                <span class="answer-kicker">@(_run.RoundSolved ? "DOBRZE ZGADNIĘTE" : "TYTUŁ UTWORU")</span>
-                                <strong>@currentTrack.Name</strong>
-                                <span class="answer-artist">@currentTrack.ArtistLine</span>
+                                <div class="answer-cover-row">
+                                    @if (!string.IsNullOrWhiteSpace(currentTrack.ImageUrl))
+                                    {
+                                        <img class="answer-art"
+                                             src="@currentTrack.ImageUrl"
+                                             alt="Okładka albumu: @(currentTrack.AlbumName ?? currentTrack.Name)"
+                                             loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="answer-art-placeholder" aria-hidden="true">♫</span>
+                                    }
+                                    <div class="answer-copy">
+                                        <span class="answer-kicker">@(_run.RoundSolved ? "DOBRZE ZGADNIĘTE" : "TYTUŁ UTWORU")</span>
+                                        <strong>@currentTrack.Name</strong>
+                                        <span class="answer-artist">@currentTrack.ArtistLine</span>
+                                    </div>
+                                </div>
                                 <div class="earned-points">
                                     <span>ZDOBYTE PUNKTY</span>
                                     <strong>@_run.CurrentRoundScore.ToString("N0")</strong>
@@ -293,6 +349,8 @@
     private GameStatistics _statistics = new(0, 0, null);
     private IJSObjectReference? _spotifyPlayerModule;
     private string _guess = string.Empty;
+    private IReadOnlyList<SpotifyTrack> _suggestions = [];
+    private int _activeSuggestionIndex = -1;
     private string? _error;
     private string? _statisticsWarning;
     private bool _isLoading;
@@ -431,15 +489,49 @@
     private void OnGuessInput(ChangeEventArgs args)
     {
         _guess = args.Value?.ToString() ?? string.Empty;
+        _suggestions = GameRules.FindSuggestions(_tracks, _guess);
+        _activeSuggestionIndex = -1;
     }
 
     private void OnGuessKeyDown(KeyboardEventArgs args)
     {
-        if (args.Key == "Enter")
+        if (args.Key == "ArrowDown" && _suggestions.Count > 0)
+        {
+            _activeSuggestionIndex = (_activeSuggestionIndex + 1) % _suggestions.Count;
+        }
+        else if (args.Key == "ArrowUp" && _suggestions.Count > 0)
+        {
+            _activeSuggestionIndex = _activeSuggestionIndex <= 0
+                ? _suggestions.Count - 1
+                : _activeSuggestionIndex - 1;
+        }
+        else if (args.Key == "Enter" && _activeSuggestionIndex >= 0)
+        {
+            SelectSuggestion(_suggestions[_activeSuggestionIndex]);
+        }
+        else if (args.Key == "Enter")
         {
             SubmitGuess();
         }
     }
+
+    private void SelectSuggestion(SpotifyTrack track)
+    {
+        _guess = track.DisplayName;
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
+        if (_run is not null)
+        {
+            _run.Feedback = null;
+        }
+    }
+
+    private string? GetActiveSuggestionId() =>
+        _activeSuggestionIndex >= 0
+            ? GetSuggestionId(_activeSuggestionIndex)
+            : null;
+
+    private static string GetSuggestionId(int index) => $"guess-suggestion-{index}";
 
     private void SubmitGuess()
     {
@@ -453,6 +545,9 @@
             _run.Feedback = "Wpisz tytuł albo pomiń próbę.";
             return;
         }
+
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
 
         var currentTrack = _run.Songs[_run.RoundIndex];
         if (GameRules.IsCorrectGuess(_guess, currentTrack))
@@ -488,6 +583,8 @@
             return;
         }
 
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
         _run.AttemptsUsed++;
         if (_run.AttemptsUsed >= GameEngine.MaximumAttempts)
         {
@@ -516,6 +613,8 @@
         _run.RoundFailed = false;
         _run.Feedback = null;
         _guess = string.Empty;
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
 
         if (_run.IsComplete && _run.IsDaily)
         {
@@ -549,12 +648,16 @@
 
         _run = null;
         _guess = string.Empty;
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
     }
 
     private void ReturnHome()
     {
         _run = null;
         _guess = string.Empty;
+        _suggestions = [];
+        _activeSuggestionIndex = -1;
     }
 
     public async ValueTask DisposeAsync()

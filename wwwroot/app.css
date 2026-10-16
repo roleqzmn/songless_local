@@ -700,7 +700,6 @@ h1 span,
 .guess-input {
     width: 100%;
     height: 51px;
-    margin-top: 12px;
     padding: 0 14px;
     border: 1px solid #3a4137;
     border-radius: 9px;
@@ -709,8 +708,86 @@ h1 span,
     font-size: 13px;
 }
 
+.guess-entry {
+    margin-top: 12px;
+}
+
 .guess-input::placeholder {
     color: #5e655a;
+}
+
+.suggestion-list {
+    display: flex;
+    max-height: 220px;
+    flex-direction: column;
+    overflow-y: auto;
+    margin-top: 6px;
+    border: 1px solid #3a4137;
+    border-radius: 9px;
+    background: #151813;
+}
+
+.suggestion-list:empty {
+    display: none;
+}
+
+.suggestion-option {
+    display: grid;
+    min-height: 50px;
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 7px 11px;
+    border: 0;
+    border-bottom: 1px solid #292e27;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+}
+
+.suggestion-option:last-child {
+    border-bottom: 0;
+}
+
+.suggestion-option:hover,
+.suggestion-option.active {
+    background: #22291b;
+}
+
+.suggestion-symbol {
+    display: grid;
+    width: 29px;
+    height: 29px;
+    place-items: center;
+    border-radius: 7px;
+    background: #28311f;
+    color: var(--green);
+    font-size: 15px;
+}
+
+.suggestion-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.suggestion-copy strong,
+.suggestion-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggestion-copy strong {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.suggestion-copy span {
+    color: #8e9587;
+    font-size: 10px;
 }
 
 .submit-button {
@@ -752,8 +829,46 @@ h1 span,
 .answer-reveal {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     margin-top: 43px;
+}
+
+.answer-cover-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 14px;
+}
+
+.answer-art,
+.answer-art-placeholder {
+    width: 76px;
+    height: 76px;
+    flex: 0 0 76px;
+    border: 1px solid #3a4137;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.answer-art {
+    object-fit: cover;
+}
+
+.answer-art-placeholder,
+.result-art-placeholder {
+    display: grid;
+    place-items: center;
+    background: #242c1c;
+    color: var(--green);
+    font-size: 23px;
+}
+
+.answer-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
 }
 
 .answer-kicker {
@@ -764,15 +879,13 @@ h1 span,
     color: #d5b879;
 }
 
-.answer-reveal > strong {
+.answer-copy > strong {
     overflow-wrap: anywhere;
-    margin-top: 12px;
     font-size: 24px;
     letter-spacing: -1px;
 }
 
 .answer-artist {
-    margin-top: 5px;
     color: #9ba195;
     font-size: 12px;
 }
@@ -855,11 +968,27 @@ h1 span,
 
 .result-track {
     display: grid;
-    grid-template-columns: 34px 1fr auto;
+    grid-template-columns: 26px 42px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
     min-height: 58px;
     border-bottom: 1px solid var(--border);
+}
+
+.result-art,
+.result-art-placeholder {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #3a4137;
+    border-radius: 7px;
+}
+
+.result-art {
+    object-fit: cover;
+}
+
+.result-art-placeholder {
+    font-size: 17px;
 }
 
 .result-index {

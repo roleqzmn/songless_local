@@ -127,12 +127,13 @@ export async function playSnippet(uri, durationMilliseconds) {
         const state = await player.getCurrentState();
         const currentTrack = state?.track_window?.current_track;
 
-        if (currentTrack?.uri === uri && !state.paused && state.position >= durationMilliseconds) {
+        if (currentTrack?.uri === uri && !state.paused) {
+            await delay(durationMilliseconds);
             await player.pause();
             return;
         }
 
-        await delay(80);
+        await delay(50);
     }
 
     await player.pause();
