@@ -49,6 +49,85 @@ async function waitForDevice() {
     return deviceId;
 }
 
+async function getAvailableDevices(accessToken) {
+    const response = await fetch("https://api.spotify.com/v1/me/player/devices", {
+        headers: {
+            Authorization: `Bearer ${accessToken}`
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`Nie udało się sprawdzić odtwarzaczy Spotify (HTTP ${response.status}).`);
+    }
+
+    const result = await response.json();
+    if (!Array.isArray(result.devices)) {
+        throw new Error("Spotify zwróciło nieprawidłową listę odtwarzaczy.");
+    }
+
+    return result.devices;
+}
+
+async function transferPlaybackToDevice(activeDeviceId, accessToken) {
+    const response = await fetch("https://api.spotify.com/v1/me/player", {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            device_ids: [activeDeviceId],
+            play: false
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Nie udało się przełączyć Spotify na odtwarzacz przeglądarki (HTTP ${response.status}).`);
+    }
+}
+
+async function wakePlaybackDevice(activeDeviceId) {
+    const accessToken = await getAccessToken();
+    let devices = await getAvailableDevices(accessToken);
+
+    if (!devices.some(device => device.id === activeDeviceId && device.is_active)) {
+        await transferPlaybackToDevice(activeDeviceId, accessToken);
+
+        const deadline = Date.now() + 5_000;
+        while (Date.now() < deadline) {
+            await delay(200);
+            devices = await getAvailableDevices(accessToken);
+
+            if (devices.some(device => device.id === activeDeviceId && device.is_active)) {
+                break;
+            }
+        }
+    }
+
+    if (!devices.some(device => device.id === activeDeviceId && device.is_active)) {
+        throw new Error("Spotify nie aktywowało odtwarzacza przeglądarki. Spróbuj ponownie.");
+    }
+
+    await player.getCurrentState();
+}
+
+async function pauseOnDevice(activeDeviceId) {
+    const accessToken = await getAccessToken();
+    const [response] = await Promise.all([
+        fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(activeDeviceId)}`, {
+            method: "PUT",
+            headers: {
+                Authorization: `Bearer ${accessToken}`
+            }
+        }),
+        player.pause()
+    ]);
+
+    if (!response.ok) {
+        throw new Error(`Nie udało się zatrzymać odtwarzania Spotify (HTTP ${response.status}).`);
+    }
+}
+
 async function connectPlayer() {
     await loadSdk();
 
@@ -93,7 +172,9 @@ async function connectPlayer() {
         throw new Error("Nie udało się połączyć odtwarzacza Spotify.");
     }
 
-    return waitForDevice();
+    const activeDeviceId = await waitForDevice();
+    await wakePlaybackDevice(activeDeviceId);
+    return activeDeviceId;
 }
 
 export async function playSnippet(uri, durationMilliseconds) {
@@ -129,20 +210,24 @@ export async function playSnippet(uri, durationMilliseconds) {
 
         if (currentTrack?.uri === uri && !state.paused) {
             await delay(durationMilliseconds);
-            await player.pause();
+            await pauseOnDevice(activeDeviceId);
             return;
         }
 
         await delay(50);
     }
 
-    await player.pause();
+    await pauseOnDevice(activeDeviceId);
     throw new Error("Spotify nie rozpoczęło odtwarzania na czas. Spróbuj ponownie.");
 }
 
 export async function pause() {
     if (player) {
-        await player.pause();
+        if (deviceId) {
+            await pauseOnDevice(deviceId);
+        } else {
+            await player.pause();
+        }
     }
 }
 
